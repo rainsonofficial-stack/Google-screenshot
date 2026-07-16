@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="API Link" android:textStyle="bold"/>
+    <EditText android:id="@+id/editApiLink"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="https://example.com/api/feed/xxxx"/>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="JSON Key to read" android:textStyle="bold"/>
+    <EditText android:id="@+id/editApiKey"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="value"/>
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Backdate To" android:textStyle="bold"/>
+    <RadioGroup android:id="@+id/radioTimeGroup"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <RadioButton android:id="@+id/radio3h" android:text="3 hours ago"/>
+        <RadioButton android:id="@+id/radio10h" android:text="10 hours ago"/>
+        <RadioButton android:id="@+id/radio24h" android:text="24 hours ago"/>
+        <RadioButton android:id="@+id/radio3d" android:text="3 days ago"/>
+        <RadioButton android:id="@+id/radioCustom" android:text="Custom date/time"/>
+    </RadioGroup>
+
+    <EditText android:id="@+id/editCustomDateTime"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="yyyy-MM-dd HH:mm:ss" android:visibility="gone"/>
+
+    <Switch android:id="@+id/switchAutoLock"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="Auto-lock phone after"/>
+
+    <Button android:id="@+id/btnConfirm"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="24dp" android:text="Confirm"/>
+
+    <Button android:id="@+id/btnAccessibilitySettings"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Open Accessibility Settings"/>
+
+    <Button android:id="@+id/btnDeviceAdminSettings"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Enable Device Admin"/>
+
+</LinearLayout>
+</ScrollView>
