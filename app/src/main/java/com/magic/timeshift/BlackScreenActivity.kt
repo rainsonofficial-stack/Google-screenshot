@@ -39,6 +39,9 @@ class BlackScreenActivity : AppCompatActivity() {
     private val client = OkHttpClient()
     private var polling: Job? = null
 
+    // Values that should NEVER trigger the effect, even if they appear in the API response.
+    private val ignoredValues = setOf("Paired", "Connected", "Confirmed")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
@@ -98,8 +101,9 @@ class BlackScreenActivity : AppCompatActivity() {
             while (isActive) {
                 delay(2000)
                 val value = fetchCurrentValue(apiLink, apiKey)
-                if (value.isNotBlank() && value != baselineValue) {
-                    withContext(Dispatchers.Main) { performSearch(value) }
+                val isIgnored = ignoredValues.any { it.equals(value, ignoreCase = true) }
+                if (value.isNotBlank() && value != baselineValue && !isIgnored) {
+                    withContext(Dispatchers.Main) { waitThenSearch(value) }
                     return@launch
                 }
             }
@@ -115,6 +119,11 @@ class BlackScreenActivity : AppCompatActivity() {
                 if (json.has(apiKey)) json.getString(apiKey) else ""
             }
         } catch (e: Exception) { "" }
+    }
+
+    private fun waitThenSearch(term: String) {
+        // Wait 5 seconds on the black screen before doing anything visible.
+        Handler(Looper.getMainLooper()).postDelayed({ performSearch(term) }, 5000)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -216,19 +225,25 @@ class BlackScreenActivity : AppCompatActivity() {
         homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         startActivity(homeIntent)
 
-        if (prefs.getBoolean("auto_lock", true)) {
-            Handler(Looper.getMainLooper()).postDelayed({ lockPhone(); finish() }, 500)
-        } else {
+        Handler(Looper.getMainLooper()).postDelayed({
+            lockPhone()
             finish()
-        }
+        }, 700)
     }
 
     private fun lockPhone() {
+        if (!prefs.getBoolean("auto_lock", true)) return
         try {
             val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
-            if (dpm.isAdminActive(admin)) dpm.lockNow()
-        } catch (e: Exception) { }
+            if (dpm.isAdminActive(admin)) {
+                dpm.lockNow()
+            } else {
+                Toast.makeText(this, "Device Admin not active — phone won't auto-lock", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Lock failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onDestroy() {
