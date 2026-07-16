@@ -40,6 +40,14 @@
         android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:layout_marginTop="16dp" android:text="Auto-lock phone after"/>
 
+    <Switch android:id="@+id/switchDarkTheme"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Dark theme"/>
+
+    <Switch android:id="@+id/switchVibrate"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="Vibrate 3x when done"/>
+
     <Button android:id="@+id/btnConfirm"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="24dp" android:text="Confirm"/>
