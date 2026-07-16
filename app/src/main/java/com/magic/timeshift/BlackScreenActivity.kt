@@ -7,14 +7,21 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
+import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -28,40 +35,50 @@ class BlackScreenActivity : AppCompatActivity() {
 
     private lateinit var prefs: SharedPreferences
     private lateinit var webView: WebView
-    private lateinit var statusText: TextView
+    private lateinit var root: FrameLayout
     private val client = OkHttpClient()
     private var polling: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         prefs = getSharedPreferences("timeshift_prefs", MODE_PRIVATE)
 
-        val root = FrameLayout(this)
+        root = FrameLayout(this)
         root.setBackgroundColor(Color.BLACK)
         setContentView(root)
 
-        statusText = TextView(this)
-        statusText.setTextColor(Color.DKGRAY)
-        statusText.textSize = 12f
-        statusText.setPadding(24, 24, 24, 24)
-        root.addView(statusText)
-
         webView = WebView(this)
         webView.settings.javaScriptEnabled = true
-        webView.visibility = android.view.View.INVISIBLE
+        webView.visibility = View.INVISIBLE
         root.addView(webView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
         if (!isAccessibilityServiceEnabled()) {
-            statusText.text = "Accessibility service is OFF.\nEnable TimeShift in Settings > Accessibility, then try again."
             Toast.makeText(this, "Enable Accessibility Service first", Toast.LENGTH_LONG).show()
-            Handler(Looper.getMainLooper()).postDelayed({ finish() }, 3000)
+            Handler(Looper.getMainLooper()).postDelayed({ finish() }, 2500)
             return
         }
 
-        statusText.text = "Waiting for update..."
         startPolling()
+    }
+
+    private fun hideSystemBars() {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        )
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
@@ -75,32 +92,21 @@ class BlackScreenActivity : AppCompatActivity() {
     private fun startPolling() {
         val apiLink = prefs.getString("api_link", "") ?: ""
         val apiKey = prefs.getString("api_key", "value") ?: "value"
-        val baselineValue = fetchCurrentValueSync(apiLink, apiKey)
 
         polling = CoroutineScope(Dispatchers.IO).launch {
+            val baselineValue = fetchCurrentValue(apiLink, apiKey)
             while (isActive) {
-                try {
-                    val request = Request.Builder().url(apiLink).build()
-                    client.newCall(request).execute().use { response ->
-                        val body = response.body?.string()
-                        if (!body.isNullOrEmpty()) {
-                            val json = JSONObject(body)
-                            if (json.has(apiKey)) {
-                                val value = json.getString(apiKey)
-                                if (value.isNotBlank() && value != baselineValue) {
-                                    withContext(Dispatchers.Main) { performSearch(value) }
-                                    return@launch
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) { /* keep retrying */ }
                 delay(2000)
+                val value = fetchCurrentValue(apiLink, apiKey)
+                if (value.isNotBlank() && value != baselineValue) {
+                    withContext(Dispatchers.Main) { performSearch(value) }
+                    return@launch
+                }
             }
         }
     }
 
-    private fun fetchCurrentValueSync(apiLink: String, apiKey: String): String {
+    private fun fetchCurrentValue(apiLink: String, apiKey: String): String {
         return try {
             val request = Request.Builder().url(apiLink).build()
             client.newCall(request).execute().use { response ->
@@ -113,30 +119,94 @@ class BlackScreenActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun performSearch(term: String) {
-        runOnUiThread { statusText.text = "Searching: $term" }
         val query = URLEncoder.encode(term, "UTF-8")
-        webView.visibility = android.view.View.VISIBLE
+        webView.visibility = View.VISIBLE
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                Handler(Looper.getMainLooper()).postDelayed({ takeScreenshotAndBackdate() }, 1500)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    addFakeBrowserChrome()
+                    Handler(Looper.getMainLooper()).postDelayed({ takeScreenshotAndBackdate() }, 400)
+                }, 1200)
             }
         }
         webView.loadUrl("https://www.google.com/search?q=$query")
     }
 
+    private fun addFakeBrowserChrome() {
+        val darkTheme = prefs.getBoolean("dark_theme", false)
+        val barBg = if (darkTheme) Color.parseColor("#2D2E30") else Color.WHITE
+        val textColor = if (darkTheme) Color.LTGRAY else Color.DKGRAY
+        val chipBg = if (darkTheme) Color.parseColor("#3C4043") else Color.parseColor("#F1F3F4")
+        val density = resources.displayMetrics.density
+
+        val toolbar = LinearLayout(this)
+        toolbar.orientation = LinearLayout.HORIZONTAL
+        toolbar.gravity = Gravity.CENTER_VERTICAL
+        toolbar.setBackgroundColor(barBg)
+        toolbar.setPadding((12 * density).toInt(), (28 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+
+        val home = TextView(this)
+        home.text = "⌂"
+        home.textSize = 18f
+        home.setTextColor(textColor)
+        home.setPadding(0, 0, (16 * density).toInt(), 0)
+        toolbar.addView(home)
+
+        val addressBar = TextView(this)
+        addressBar.text = "🔒 www.google.com"
+        addressBar.textSize = 13f
+        addressBar.setTextColor(textColor)
+        addressBar.setBackgroundColor(chipBg)
+        addressBar.setPadding((20 * density).toInt(), (10 * density).toInt(), (20 * density).toInt(), (10 * density).toInt())
+        val addressParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        addressParams.marginEnd = (16 * density).toInt()
+        toolbar.addView(addressBar, addressParams)
+
+        val tabs = TextView(this)
+        tabs.text = "1"
+        tabs.textSize = 13f
+        tabs.setTextColor(textColor)
+        tabs.gravity = Gravity.CENTER
+        val tabSize = (26 * density).toInt()
+        val tabParams = LinearLayout.LayoutParams(tabSize, tabSize)
+        tabParams.marginEnd = (16 * density).toInt()
+        toolbar.addView(tabs, tabParams)
+
+        val menu = TextView(this)
+        menu.text = "⋮"
+        menu.textSize = 18f
+        menu.setTextColor(textColor)
+        toolbar.addView(menu)
+
+        val toolbarParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
+        toolbarParams.gravity = Gravity.TOP
+        root.addView(toolbar, toolbarParams)
+    }
+
     private fun takeScreenshotAndBackdate() {
         val service = ScreenshotAccessibilityService.instance
         if (service == null) {
-            runOnUiThread { Toast.makeText(this, "Accessibility service disconnected", Toast.LENGTH_LONG).show() }
             finishAndReturnHome()
             return
         }
         service.captureScreenshot { success ->
-            if (!success) {
-                runOnUiThread { Toast.makeText(this, "Screenshot failed", Toast.LENGTH_LONG).show() }
-            }
+            if (success) vibrateDone()
             finishAndReturnHome()
         }
+    }
+
+    private fun vibrateDone() {
+        if (!prefs.getBoolean("vibrate_on_complete", true)) return
+        val vibrator: Vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vm.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        val pattern = longArrayOf(0, 100, 120, 100, 120, 100)
+        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
     }
 
     private fun finishAndReturnHome() {
@@ -158,7 +228,7 @@ class BlackScreenActivity : AppCompatActivity() {
             val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
             if (dpm.isAdminActive(admin)) dpm.lockNow()
-        } catch (e: Exception) { /* admin not enabled */ }
+        } catch (e: Exception) { }
     }
 
     override fun onDestroy() {
