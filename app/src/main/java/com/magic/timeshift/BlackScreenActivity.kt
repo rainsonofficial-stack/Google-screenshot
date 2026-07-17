@@ -40,8 +40,6 @@ class BlackScreenActivity : AppCompatActivity() {
     private val client = OkHttpClient()
     private var polling: Job? = null
 
-    // Guard so onPageFinished firing multiple times (redirects, sub-frames)
-    // never triggers more than one screenshot.
     private var captureTriggered = false
 
     private val ignoredValues = setOf("Paired", "Connected", "Confirmed")
@@ -101,14 +99,30 @@ class BlackScreenActivity : AppCompatActivity() {
         val apiKey = prefs.getString("api_key", "value") ?: "value"
 
         polling = CoroutineScope(Dispatchers.IO).launch {
-            val baselineValue = fetchCurrentValue(apiLink, apiKey)
+            // baseline = whatever value is already sitting on the API when this
+            // performance starts (typically the previous spectator's word).
+            var baseline = fetchCurrentValue(apiLink, apiKey)
+
+            // The very first change we see after launch is assumed to be YOUR
+            // pairing word, not the spectator's word — so we absorb it as the
+            // new baseline instead of triggering, and wait for the next change.
+            var pairingWordAbsorbed = false
+
             while (isActive) {
                 delay(2000)
                 val value = fetchCurrentValue(apiLink, apiKey)
                 val isIgnored = ignoredValues.any { it.equals(value, ignoreCase = true) }
-                if (value.isNotBlank() && value != baselineValue && !isIgnored) {
-                    withContext(Dispatchers.Main) { waitThenSearch(value) }
-                    return@launch
+
+                if (value.isNotBlank() && value != baseline && !isIgnored) {
+                    if (!pairingWordAbsorbed) {
+                        // This is the pairing word — swallow it silently.
+                        baseline = value
+                        pairingWordAbsorbed = true
+                    } else {
+                        // This is the real spectator word — fire the effect.
+                        withContext(Dispatchers.Main) { waitThenSearch(value) }
+                        return@launch
+                    }
                 }
             }
         }
@@ -135,13 +149,9 @@ class BlackScreenActivity : AppCompatActivity() {
         webView.visibility = View.VISIBLE
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                // Ignore any repeat firings (redirects / sub-resources) once we've
-                // already scheduled or taken the screenshot.
                 if (captureTriggered) return
                 captureTriggered = true
 
-                // Let the page fully settle (images, layout, any redirects) before
-                // adding the fake browser chrome and capturing — single shot only.
                 Handler(Looper.getMainLooper()).postDelayed({
                     addFakeBrowserChrome()
                     Handler(Looper.getMainLooper()).postDelayed({ takeScreenshotAndBackdate() }, 500)
@@ -156,15 +166,12 @@ class BlackScreenActivity : AppCompatActivity() {
         val barBg = if (darkTheme) Color.parseColor("#2D2E30") else Color.WHITE
         val textColor = if (darkTheme) Color.LTGRAY else Color.DKGRAY
         val chipBg = if (darkTheme) Color.parseColor("#3C4043") else Color.parseColor("#F1F3F4")
-        val pillBg = if (darkTheme) Color.parseColor("#4A4D51") else Color.parseColor("#E8EAED")
         val density = resources.displayMetrics.density
 
         val toolbar = LinearLayout(this)
         toolbar.orientation = LinearLayout.HORIZONTAL
         toolbar.gravity = Gravity.CENTER_VERTICAL
         toolbar.setBackgroundColor(barBg)
-        // Reduced top padding since the system status bar is already hidden —
-        // this pulls the whole toolbar up so it sits right at the true top edge.
         toolbar.setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
 
         val home = TextView(this)
