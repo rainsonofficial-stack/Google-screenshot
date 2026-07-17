@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -39,7 +40,10 @@ class BlackScreenActivity : AppCompatActivity() {
     private val client = OkHttpClient()
     private var polling: Job? = null
 
-    // Values that should NEVER trigger the effect, even if they appear in the API response.
+    // Guard so onPageFinished firing multiple times (redirects, sub-frames)
+    // never triggers more than one screenshot.
+    private var captureTriggered = false
+
     private val ignoredValues = setOf("Paired", "Connected", "Confirmed")
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -122,7 +126,6 @@ class BlackScreenActivity : AppCompatActivity() {
     }
 
     private fun waitThenSearch(term: String) {
-        // Wait 5 seconds on the black screen before doing anything visible.
         Handler(Looper.getMainLooper()).postDelayed({ performSearch(term) }, 5000)
     }
 
@@ -132,10 +135,17 @@ class BlackScreenActivity : AppCompatActivity() {
         webView.visibility = View.VISIBLE
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, loadedUrl: String?) {
+                // Ignore any repeat firings (redirects / sub-resources) once we've
+                // already scheduled or taken the screenshot.
+                if (captureTriggered) return
+                captureTriggered = true
+
+                // Let the page fully settle (images, layout, any redirects) before
+                // adding the fake browser chrome and capturing — single shot only.
                 Handler(Looper.getMainLooper()).postDelayed({
                     addFakeBrowserChrome()
-                    Handler(Looper.getMainLooper()).postDelayed({ takeScreenshotAndBackdate() }, 400)
-                }, 1200)
+                    Handler(Looper.getMainLooper()).postDelayed({ takeScreenshotAndBackdate() }, 500)
+                }, 4000)
             }
         }
         webView.loadUrl("https://www.google.com/search?q=$query")
@@ -146,13 +156,16 @@ class BlackScreenActivity : AppCompatActivity() {
         val barBg = if (darkTheme) Color.parseColor("#2D2E30") else Color.WHITE
         val textColor = if (darkTheme) Color.LTGRAY else Color.DKGRAY
         val chipBg = if (darkTheme) Color.parseColor("#3C4043") else Color.parseColor("#F1F3F4")
+        val pillBg = if (darkTheme) Color.parseColor("#4A4D51") else Color.parseColor("#E8EAED")
         val density = resources.displayMetrics.density
 
         val toolbar = LinearLayout(this)
         toolbar.orientation = LinearLayout.HORIZONTAL
         toolbar.gravity = Gravity.CENTER_VERTICAL
         toolbar.setBackgroundColor(barBg)
-        toolbar.setPadding((12 * density).toInt(), (28 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+        // Reduced top padding since the system status bar is already hidden —
+        // this pulls the whole toolbar up so it sits right at the true top edge.
+        toolbar.setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
 
         val home = TextView(this)
         home.text = "⌂"
@@ -161,22 +174,32 @@ class BlackScreenActivity : AppCompatActivity() {
         home.setPadding(0, 0, (16 * density).toInt(), 0)
         toolbar.addView(home)
 
+        val addressBarBg = GradientDrawable()
+        addressBarBg.setColor(chipBg)
+        addressBarBg.cornerRadius = 40f * density
+
         val addressBar = TextView(this)
         addressBar.text = "🔒 www.google.com"
         addressBar.textSize = 13f
         addressBar.setTextColor(textColor)
-        addressBar.setBackgroundColor(chipBg)
-        addressBar.setPadding((20 * density).toInt(), (10 * density).toInt(), (20 * density).toInt(), (10 * density).toInt())
+        addressBar.background = addressBarBg
+        addressBar.setPadding((24 * density).toInt(), (10 * density).toInt(), (24 * density).toInt(), (10 * density).toInt())
         val addressParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         addressParams.marginEnd = (16 * density).toInt()
         toolbar.addView(addressBar, addressParams)
+
+        val tabPillBg = GradientDrawable()
+        tabPillBg.setColor(Color.TRANSPARENT)
+        tabPillBg.setStroke((1.5f * density).toInt(), textColor)
+        tabPillBg.cornerRadius = 6f * density
 
         val tabs = TextView(this)
         tabs.text = "1"
         tabs.textSize = 13f
         tabs.setTextColor(textColor)
         tabs.gravity = Gravity.CENTER
-        val tabSize = (26 * density).toInt()
+        tabs.background = tabPillBg
+        val tabSize = (28 * density).toInt()
         val tabParams = LinearLayout.LayoutParams(tabSize, tabSize)
         tabParams.marginEnd = (16 * density).toInt()
         toolbar.addView(tabs, tabParams)
