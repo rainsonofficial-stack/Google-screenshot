@@ -41,11 +41,10 @@ class BlackScreenActivity : AppCompatActivity() {
     private var polling: Job? = null
 
     private var captureTriggered = false
+    private var bingFallbackUsed = false
+    private var currentQuery = ""
 
     private val ignoredValues = setOf("Paired", "Connected", "Confirmed")
-
-    // Set to true to use Bing instead of Google (fewer captchas during testing/live use).
-    private val useBing = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,8 +58,8 @@ class BlackScreenActivity : AppCompatActivity() {
 
         webView = WebView(this)
         webView.settings.javaScriptEnabled = true
-        // Spoof a real Chrome mobile User-Agent so the page doesn't detect this
-        // as an embedded WebView (removes the ";wv" bot fingerprint).
+        // Spoof a real Chrome mobile User-Agent so pages don't detect this as
+        // an embedded WebView (removes the ";wv" bot fingerprint).
         webView.settings.userAgentString =
             "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
         webView.visibility = View.INVISIBLE
@@ -144,25 +143,48 @@ class BlackScreenActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun performSearch(term: String) {
-        val query = URLEncoder.encode(term, "UTF-8")
+        currentQuery = URLEncoder.encode(term, "UTF-8")
         webView.visibility = View.VISIBLE
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                 if (captureTriggered) return
-                captureTriggered = true
 
+                // Give the page a moment to fully render before inspecting it.
+                Handler(Looper.getMainLooper()).postDelayed({
+                    checkForCaptchaThenProceed(view)
+                }, 1200)
+            }
+        }
+        webView.loadUrl("https://www.google.com/search?q=$currentQuery")
+    }
+
+    private fun checkForCaptchaThenProceed(view: WebView?) {
+        view?.evaluateJavascript(
+            "(function(){return document.body ? document.body.innerText.substring(0,500) : '';})();"
+        ) { result ->
+            val text = (result ?: "").lowercase()
+            val looksLikeCaptcha = text.contains("unusual traffic") ||
+                text.contains("recaptcha") ||
+                text.contains("i'm not a robot") ||
+                text.contains("verify you're human")
+
+            if (looksLikeCaptcha && !bingFallbackUsed) {
+                // Silently swap to Bing behind the scenes. The fake address bar
+                // will still show www.google.com regardless.
+                bingFallbackUsed = true
+                Handler(Looper.getMainLooper()).postDelayed({
+                    webView.loadUrl("https://www.bing.com/search?q=$currentQuery")
+                }, 300)
+            } else {
+                // Either a clean Google result, or we've already fallen back to
+                // Bing and this is that result — proceed to capture either way.
+                captureTriggered = true
                 Handler(Looper.getMainLooper()).postDelayed({
                     addFakeBrowserChrome()
                     Handler(Looper.getMainLooper()).postDelayed({ takeScreenshotAndBackdate() }, 500)
-                }, 4000)
+                }, 2800)
             }
         }
-        val searchUrl = if (useBing) {
-            "https://www.bing.com/search?q=$query"
-        } else {
-            "https://www.google.com/search?q=$query"
-        }
-        webView.loadUrl(searchUrl)
     }
 
     private fun addFakeBrowserChrome() {
@@ -190,6 +212,7 @@ class BlackScreenActivity : AppCompatActivity() {
         addressBarBg.cornerRadius = 40f * density
 
         val addressBar = TextView(this)
+        // Always shows Google, regardless of which engine actually rendered the page.
         addressBar.text = "🔒 www.google.com"
         addressBar.textSize = 13f
         addressBar.setTextColor(textColor)
