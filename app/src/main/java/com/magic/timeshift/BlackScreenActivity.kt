@@ -44,6 +44,9 @@ class BlackScreenActivity : AppCompatActivity() {
 
     private val ignoredValues = setOf("Paired", "Connected", "Confirmed")
 
+    // Set to true to use Bing instead of Google (fewer captchas during testing/live use).
+    private val useBing = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
@@ -56,6 +59,10 @@ class BlackScreenActivity : AppCompatActivity() {
 
         webView = WebView(this)
         webView.settings.javaScriptEnabled = true
+        // Spoof a real Chrome mobile User-Agent so the page doesn't detect this
+        // as an embedded WebView (removes the ";wv" bot fingerprint).
+        webView.settings.userAgentString =
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
         webView.visibility = View.INVISIBLE
         root.addView(webView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -99,13 +106,7 @@ class BlackScreenActivity : AppCompatActivity() {
         val apiKey = prefs.getString("api_key", "value") ?: "value"
 
         polling = CoroutineScope(Dispatchers.IO).launch {
-            // baseline = whatever value is already sitting on the API when this
-            // performance starts (typically the previous spectator's word).
             var baseline = fetchCurrentValue(apiLink, apiKey)
-
-            // The very first change we see after launch is assumed to be YOUR
-            // pairing word, not the spectator's word — so we absorb it as the
-            // new baseline instead of triggering, and wait for the next change.
             var pairingWordAbsorbed = false
 
             while (isActive) {
@@ -115,11 +116,9 @@ class BlackScreenActivity : AppCompatActivity() {
 
                 if (value.isNotBlank() && value != baseline && !isIgnored) {
                     if (!pairingWordAbsorbed) {
-                        // This is the pairing word — swallow it silently.
                         baseline = value
                         pairingWordAbsorbed = true
                     } else {
-                        // This is the real spectator word — fire the effect.
                         withContext(Dispatchers.Main) { waitThenSearch(value) }
                         return@launch
                     }
@@ -158,7 +157,12 @@ class BlackScreenActivity : AppCompatActivity() {
                 }, 4000)
             }
         }
-        webView.loadUrl("https://www.google.com/search?q=$query")
+        val searchUrl = if (useBing) {
+            "https://www.bing.com/search?q=$query"
+        } else {
+            "https://www.google.com/search?q=$query"
+        }
+        webView.loadUrl(searchUrl)
     }
 
     private fun addFakeBrowserChrome() {
