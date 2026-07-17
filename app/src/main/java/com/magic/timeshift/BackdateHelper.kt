@@ -59,7 +59,7 @@ object BackdateHelper {
             put(MediaStore.Images.Media.DATE_MODIFIED, timeMillis / 1000)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.DATE_TAKEN, timeMillis)
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/TimeShift")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Screenshots")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
